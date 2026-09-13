@@ -66,16 +66,59 @@ node scripts/check-publish.mjs    # 单独再扫一遍隐私（会跳过 项目�
 
 ---
 
-## 4. 版本与更新记录
+## 4. 让别人能"发现"这个插件（两个渠道，各做各的）
+
+**不要**去找 DSH 官方提交什么 —— DSH 本体没有收录入口。有两套发现机制：
+
+| 渠道 | 靠什么 | 要做什么 |
+| --- | --- | --- |
+| **DSH 自带的插件搜索** | GitHub 的 **`dsh-plugin` topic** | 给仓库加上这个 topic 即可，不需要提交任何东西 |
+| **插件市场 / 精选列表**（`dshmarket`、[awesome-dsh-plugin.com](https://awesome-dsh-plugin.com)） | [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 仓库里的一个 YAML | 提一个 PR，只加一个文件 |
+
+### ① 给仓库加 `dsh-plugin` topic（必做）
+
+仓库页右上角 **⚙️ About → Topics**，加上 `dsh-plugin`（再加 `deepseek-harness`、`dsh` 更好）。
+**不加这个 topic，DSH 里搜插件是搜不到的** —— 这是最容易漏、后果最直接的一步。
+
+### ② 提 PR 进精选列表（可选，推荐）
+
+规则（2026-09 时的版本，以 [contributing.md](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md) 为准）：
+
+- 提交**一个文件**：`data/plugins/<owner>__<repo>.yml`。**不要**改 README —— 那两份 README 由 CI 从这些 YAML 生成，手工改会冲突。
+- 仓库必须：① 声明了 `dsh.bundle`（只有 `dsh.client` 不算可安装）；② **创建满 1 天**；③ 带 `dsh-plugin` topic。
+- `category` 取值见 contributing.md 的分类表；通知类用 **`notify`**。
+- 一个 PR 最多 3 条；CI 会跑 awesome-lint 与站点构建，失败会明确说要改什么，同分支再推即可。
+
+条目内容本项目已备好（放在 `收录提交/`，该目录已 gitignore，不会进仓库）：
+
+```yaml
+url: https://github.com/Vergil-long/dsh-email-notify
+name: Vergil-long/dsh-email-notify
+category: notify
+description:
+  en: 'Email notifications for DSH with an away-mode switch: ...'
+  zh: 'DSH 邮件通知插件，带一个「离开模式」开关：...'
+```
+
+> 描述里若含半角 `: `（冒号加空格）**整行必须加引号**，否则 YAML 会当成嵌套键 —— EN 描述里就有这种冒号。
+
+操作步骤（全程网页，不用命令行）：**Fork** → 在自己 fork 里 **Add file → Create new file** →
+文件名填 `data/plugins/Vergil-long__dsh-email-notify.yml` → 粘贴上面的内容 → **Commit changes** →
+回自己的 fork 首页点 **Contribute → Open pull request**。
+
+---
+
+## 5. 版本与更新记录
 
 - 改了功能就顺手上调 `package.json` 的 `version`，并在 `CHANGELOG.md` 顶部加一节。
 - 提交信息建议保持现在这个风格：一行说清"做了什么"，正文列要点（中文没问题）。
 
 ---
 
-## 5. 发布之后的两件事
+## 6. 发布之后的两件事
 
 | 事情 | 说明 |
 | --- | --- |
 | **DSH 桌面程序自动更新会抹掉外壳补丁** | 那和本插件无关（插件装在 `~/.dsh` 里，不受影响）；但 `shell-patch` 打的补丁在 `resources\app.asar` 里，更新后要重跑 `修复桌面误报通知.cmd` |
 | 别人报问题时让他先跑 | `node scripts/verify-live.mjs`——一条命令就能看出是"没装上""没重启"还是"配置没填" |
+| 想给市场加截图（可选） | 在自己仓库放 `screenshots.json`（1–8 张图片路径，相对该文件），下一次夜间构建就会采纳；不必再提 PR |
