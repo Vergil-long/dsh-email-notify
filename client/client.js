@@ -497,8 +497,10 @@ window.__ModuleLoader__.load({
     // 模块一被求值就开始上报：在场信息要尽早送到宿主端。
     if (typeof document !== "undefined") start();
 
+    // 声明依赖 slots：这样加载器会等 slots 服务就绪后再调用 apply，
+    // 设置面板才不会被"服务还没到"这一个理由悄悄跳过（与 dsh-custom-font 一致）。
     exports.apply = apply;
-    exports.inject = [];
+    exports.inject = ["slots"];
     exports.name = "dsh-email-notify";
     exports.stop = stop;
     return module.exports;

@@ -174,7 +174,7 @@ await test('以加载器要求的格式导出 apply / inject / name', () => {
   assert.equal(entry.id, 'dsh-email-notify')
   assert.equal(typeof moduleExports.apply, 'function')
   assert.equal(moduleExports.name, 'dsh-email-notify')
-  assert.deepEqual(moduleExports.inject, [])
+  assert.deepEqual(moduleExports.inject, ['slots'], '声明依赖 slots，设置面板才不会因服务未就绪被跳过')
 })
 
 await test('模块被求值时就上报「在看界面」（不用等 apply）', async () => {
