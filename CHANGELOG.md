@@ -35,6 +35,16 @@
   也不会把你没碰过的默认项固化进 `config.json`。
 - 新增 `scripts/update-all.mjs`（双击 `更新并修复.cmd`）：一次做完"同步插件 + 打外壳补丁"，
   顺序固定、可 `--dry` 预演；DSH 还在运行时会安全跳过外壳补丁并提示稍后补跑。
+- 新增 `test/manifest.test.mjs` 清单自检：按 `dsh-client-modules` 的实际校验规则核对
+  `dsh.bundle.patch` / `dsh.client` / `exports["./client"]` / 浏览器半侧的 `__ModuleLoader__` 包装
+  —— 这一层出错是"静默失败"（插件装上了但设置页里没有那一节），必须由用例守住。
+
+**修复**
+
+- **外壳补丁脚本的 fail-open 隐患**：`spawnSync('tasklist')` 在权限受限时**不抛异常**，
+  只把错误放进返回值、stdout 留空；原来的判断会把它当成"DSH 没在运行"，
+  等于在程序开着时去写被占用的 `app.asar`。现在改为**三态查询 + fail-closed**
+  （查不到就拒绝写入，除非显式 `--force`），并新增**写完读回核对**（对不上自动用备份还原）。
 
 ## 0.1.0
 

@@ -58,7 +58,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/smtp.test.mjs && node test/plugin.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs",
+    "test": "node test/manifest.test.mjs && node test/smtp.test.mjs && node test/plugin.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs",
+    "test:manifest": "node test/manifest.test.mjs",
     "test:smtp": "node test/smtp.test.mjs",
     "test:plugin": "node test/plugin.test.mjs",
     "test:client": "node test/client.test.mjs",
@@ -66,6 +67,8 @@
     "probe": "node test/live-probe.mjs",
     "send-test": "node scripts/send-test.mjs",
     "install:profile": "node scripts/install.mjs",
-    "patch:shell": "node shell-patch/patch-completion-notify.mjs"
+    "update:all": "node scripts/update-all.mjs",
+    "patch:shell": "node shell-patch/patch-completion-notify.mjs",
+    "diagnose:desktop": "node tools/analyze-desktop-notifications.mjs"
   }
 }

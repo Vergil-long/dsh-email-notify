@@ -95,10 +95,12 @@ QQ 邮箱先做这一步：网页版邮箱 → 设置 → 账户 → 开启「IM
 ## 自检与排查
 
 ```bash
-npm test                            # 全部自检用例（协议层 / 触发判定 / 浏览器半侧）
+npm test                            # 全部自检用例（清单 / 协议层 / 触发判定 / 浏览器半侧 / 外壳补丁）
+node test/manifest.test.mjs         # 清单自检：能不能被 DSH 装上并加载（最易静默失败的一层）
 node test/smtp.test.mjs             # 本地假 SMTP 服务器跑完整对话
-node test/plugin.test.mjs           # 触发判定：看界面不发、离开才发、去重、节流、提问…
+node test/plugin.test.mjs           # 触发判定：看界面不发、离开才发、去重、节流、提问、设置接口
 node test/client.test.mjs           # 浏览器半侧：在场上报、提示退化、设置面板
+node shell-patch/test-completion-bridge.mjs  # 外壳注入脚本行为（原版 vs 修补版对照）
 node test/live-probe.mjs            # 真连 smtp.qq.com:465，只握手不发信（验证网络/端口）
 node scripts/send-test.mjs --check  # 只看配置填全没有
 node scripts/send-test.mjs --trace  # 真发一封并打印完整 SMTP 对话（凭据已隐藏）
