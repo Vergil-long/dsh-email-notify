@@ -1,0 +1,28 @@
+# 依赖与构建产物（本插件零依赖，正常不会有这两个目录）
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# 本地配置与凭据：绝不能进仓库
+config.json
+*.local.json
+.env
+.env.*
+!.env.example
+
+# 日志与临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# 打补丁/自检时的中间产物（演练用的 app.asar 副本等）
+shell-patch/.work/
+
+# 工作区内部交接文档（含本机路径与个人邮箱，不适合公开）
+项目说明.md
+
+# 编辑器
+.vscode/
+.idea/

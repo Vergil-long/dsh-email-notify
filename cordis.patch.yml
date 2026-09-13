@@ -1,0 +1,7 @@
+# dsh-email-notify bundle patch：把这个插件插进 profile 的插件列表。
+# 与 dsh-custom-font 同样的机制：bundle patch 只是一段 loader patch，
+# 后面的 bundle 或 profile 自己的 cordis.patch.yml 都可以按 id 覆盖它。
+
+- insert:
+    - id: dsh-email-notify
+      name: 'dsh-email-notify'

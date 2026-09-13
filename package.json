@@ -1,0 +1,71 @@
+{
+  "name": "dsh-email-notify",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness 邮件通知插件：不在 harness 窗口前时，用邮件告诉你任务已完成、工具正等你授权、或助手在等你回答。设置全部集成在 harness 的设置界面里。",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "author": "Vergil-long",
+  "homepage": "https://github.com/Vergil-long/dsh-email-notify#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vergil-long/dsh-email-notify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Vergil-long/dsh-email-notify/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin",
+    "email",
+    "smtp",
+    "notification",
+    "notify",
+    "qq-mail"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/smtp.test.mjs && node test/plugin.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs",
+    "test:smtp": "node test/smtp.test.mjs",
+    "test:plugin": "node test/plugin.test.mjs",
+    "test:client": "node test/client.test.mjs",
+    "test:shell": "node shell-patch/test-completion-bridge.mjs",
+    "probe": "node test/live-probe.mjs",
+    "send-test": "node scripts/send-test.mjs",
+    "install:profile": "node scripts/install.mjs",
+    "patch:shell": "node shell-patch/patch-completion-notify.mjs"
+  }
+}

@@ -1,0 +1,8 @@
+# 统一换行风格，避免 Windows 检出时把源码变成 CRLF：
+# shell-patch/bridge-snippets.mjs 里的函数文本要与 app.asar 的字节逐字对应，
+# 换行风格一变就可能匹配不上（脚本里也做了归一化，这里是第二道保险）。
+* text=auto eol=lf
+
+# 批处理文件必须是 CRLF，否则 cmd.exe 解析会出问题
+*.cmd text eol=crlf
+*.bat text eol=crlf
