@@ -55,10 +55,11 @@
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md",
+    "PUBLISHING.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/manifest.test.mjs && node test/scripts.test.mjs && node test/smtp.test.mjs && node test/plugin.test.mjs && node test/host-integration.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs",
+    "test": "node test/manifest.test.mjs && node test/scripts.test.mjs && node test/smtp.test.mjs && node test/plugin.test.mjs && node test/host-integration.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs && node scripts/check-publish.mjs",
     "test:manifest": "node test/manifest.test.mjs",
     "test:scripts": "node test/scripts.test.mjs",
     "test:smtp": "node test/smtp.test.mjs",
@@ -66,6 +67,7 @@
     "test:host": "node test/host-integration.test.mjs",
     "test:client": "node test/client.test.mjs",
     "test:shell": "node shell-patch/test-completion-bridge.mjs",
+    "check:publish": "node scripts/check-publish.mjs",
     "verify-live": "node scripts/verify-live.mjs",
     "probe": "node test/live-probe.mjs",
     "send-test": "node scripts/send-test.mjs",
