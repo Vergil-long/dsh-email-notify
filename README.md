@@ -56,6 +56,10 @@ Windows 上也可以直接双击 `安装邮件通知.cmd`。
 装完**重启 DSH 桌面应用**（退出时会连后端一起重启），然后打开 **设置 → 邮件通知** 填账号。
 卸载：`node scripts/install.mjs --uninstall`，或 `dsh plugin --profile web remove dsh-email-notify`。
 
+> **已经装过、只想升级**：`node scripts/update-all.mjs`（或双击 `更新并修复.cmd`）会一次做完
+> "同步插件代码 + 打桌面外壳的误报通知补丁"，顺序固定、可 `--dry` 预演。
+> 外壳补丁要求 DSH 已退出；还在运行时它会只做插件部分并提示你稍后补跑。
+
 > 注意：安装路径**不要带空格**，否则 pnpm 的 `link:` 依赖会报 `ERR_PNPM_SPEC_NOT_SUPPORTED`。
 > 本仓库的安装脚本默认把插件放到 `~/dsh-email-notify`（无空格）就是为了避开这个坑。
 

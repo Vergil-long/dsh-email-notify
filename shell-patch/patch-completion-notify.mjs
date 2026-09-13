@@ -17,11 +17,16 @@
  *   node shell-patch/patch-completion-notify.mjs --revert        # 撤销补丁（按标记精确还原）
  *   node shell-patch/patch-completion-notify.mjs --asar <路径>   # 手动指定 app.asar
  *   node shell-patch/patch-completion-notify.mjs --keep-work     # 保留中间产物便于排查
+ *   node shell-patch/patch-completion-notify.mjs --force         # 跳过"DSH 是否在运行"的确认
+ *                                                                # （只在副本上演练、或查询被拒但你已确认退出时用）
  *
  * 安全措施：
- *   - DSH 正在运行就直接拒绝（app.asar 被占用，硬写会写坏程序）。
+ *   - DSH 正在运行就直接拒绝；**连"查不到进程"也拒绝**（fail-closed：
+ *     spawnSync 遇到权限拒绝不会抛异常，若把"查不到"当成"没在运行"，
+ *     就会去写被占用的 app.asar）。
  *   - 改完先做三重校验：整份 main.js 能通过语法检查、注入的那段脚本能单独通过语法检查、
  *     重新打包后除 main.js 外每个文件与原文件逐字节一致；校验不过就不替换。
+ *   - 写完还要读回来核对；对不上就自动用备份还原并报错。
  *   - 原 app.asar 备份为同目录下的 app.asar.bak（只在不存在时创建，沿用"一个固定名字"的约定）。
  *   - 补丁是可逆的：--revert 按标记把那段函数原样换回来，不依赖备份。
  *
@@ -36,6 +41,7 @@ import { dirname, join } from 'node:path'
 import vm from 'node:vm'
 
 import { ORIGINAL_FUNCTION, PATCHED_FUNCTION } from './bridge-snippets.mjs'
+import { desktopProcessState } from './dsh-process.mjs'
 
 const MARKER = 'dsh-email-notify stable-key fix'
 
@@ -199,20 +205,29 @@ function findAsar() {
   fail('找不到 app.asar。请用 --asar <路径> 指定，例如：\n  --asar "D:\\Download\\DeepSeekHarness\\resources\\app.asar"')
 }
 
-/** DSH 还开着？写入被占用的文件会写坏程序，所以直接拒绝。 */
+/**
+ * DSH 还开着？写入被占用的文件会写坏程序，所以直接拒绝。
+ * 查不到进程时也拒绝（fail-closed），除非显式 --force。
+ */
 function assertDesktopClosed() {
-  if (process.argv.includes('--ignore-running')) {
-    say('· --ignore-running：跳过"DSH 是否在运行"检查（只应在复制出来的副本上演练时使用）')
+  const force = process.argv.includes('--force') || process.argv.includes('--ignore-running')
+  if (force) {
+    say('· --force：跳过"DSH 是否在运行"的确认。请自行确保 DSH 已完全退出（否则写入会失败）。')
     return
   }
-  try {
-    const output = execFileSync('tasklist', ['/FI', 'IMAGENAME eq DeepSeekHarness.exe', '/NH'], { encoding: 'utf8', windowsHide: true })
-    if (/DeepSeekHarness\.exe/i.test(output)) {
-      fail('检测到 DeepSeekHarness.exe 还在运行。请先完全退出 DSH（任务管理器里确认没有残留），再运行本脚本。')
-    }
-  } catch {
-    say('· 无法查询进程列表（非 Windows 或权限受限），请自行确认 DSH 已经退出。')
+  const state = desktopProcessState()
+  if (state.known && state.running) {
+    fail('检测到 DeepSeekHarness.exe 还在运行。请先完全退出 DSH（任务管理器里确认没有残留），再运行本脚本。')
   }
+  if (!state.known) {
+    fail([
+      `无法确认 DSH 是否已退出（${state.detail}）。`,
+      '为了不写坏正在运行的程序，脚本在这里停下。请二选一：',
+      '  ① 打开任务管理器确认没有 DeepSeekHarness.exe，然后加 --force 重跑；',
+      '  ② 或者先解决"进程查询被拒绝"的问题再来。',
+    ].join('\n  '))
+  }
+  say(`· 已确认 DSH 未在运行（${state.detail}）`)
 }
 
 /** 语法检查：编译整份 main.js，以及其中注入的那段脚本。 */
@@ -319,8 +334,28 @@ if (!existsSync(backup)) {
 const workDir = mkdtempSync(join(tmpdir(), 'dsh-shell-patch-'))
 const tempOut = join(workDir, 'app.asar.new')
 writeFileSync(tempOut, repacked)
-copyFileSync(tempOut, asarPath)
-say(`· 已写入 ${asarPath}（${original.length} → ${repacked.length} 字节）`)
+try {
+  writeFileSync(asarPath, repacked)
+} catch (error) {
+  rmSync(workDir, { recursive: true, force: true })
+  fail([
+    `写入 app.asar 失败：${error.message}`,
+    '最可能的原因：DSH 还在运行，文件被占用。请完全退出 DSH 后重跑。',
+    '原文件在此步骤之前没有被改动；上面的备份也可以用来核对。',
+  ].join('\n  '))
+}
+// 写完再读回来核对一遍：万一写到一半出问题，立刻用备份还原并报错。
+const written = readFileSync(asarPath)
+if (!written.equals(repacked)) {
+  if (existsSync(backup)) {
+    copyFileSync(backup, asarPath)
+    rmSync(workDir, { recursive: true, force: true })
+    fail('写入后的内容与预期不一致，已自动用 app.asar.bak 还原。请重跑本脚本并留意磁盘/杀软干扰。')
+  }
+  rmSync(workDir, { recursive: true, force: true })
+  fail(`写入后的内容与预期不一致，且没有备份可还原。请用 ${tempOut} 手动比对（已保留）。`)
+}
+say(`· 已写入 ${asarPath}（${original.length} → ${repacked.length} 字节），并已读回校验`)
 if (keepWork) say(`· 中间产物保留在：${workDir}`)
 else rmSync(workDir, { recursive: true, force: true })
 

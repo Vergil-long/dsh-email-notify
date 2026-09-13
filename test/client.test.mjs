@@ -30,7 +30,11 @@ function makeElement(tag) {
       remove: () => { node.className = node.className.replace(' is-in', '') },
     },
     setAttribute: (key, value) => node.attributes.set(key, value),
-    appendChild: (child) => { node.children.push(child); return child },
+    appendChild: (child) => {
+      node.children.push(child)
+      if (child && typeof child === 'object') child.parentNode = node
+      return child
+    },
     removeChild: (child) => {
       const index = node.children.indexOf(child)
       if (index >= 0) node.children.splice(index, 1)
@@ -366,7 +370,7 @@ await test('设置面板：注册成 harness 设置里的「邮件通知」一�
   assert.equal(texts.includes('发送测试邮件'), true)
   assert.equal(fetchCalls.some((call) => call.url.endsWith('/config')), true, '应当去读配置')
 
-  // 点「保存设置」应当把草稿 POST 回宿主端
+  // 什么都没改就点保存：不该发请求（避免把一堆默认值固化进用户文件）
   const findButton = (node, text) => {
     if (node.tagName === 'BUTTON' && node.textContent === text) return node
     for (const child of node.children ?? []) {
@@ -377,17 +381,37 @@ await test('设置面板：注册成 harness 设置里的「邮件通知」一�
   }
   const saveButton = findButton(panel, '保存设置')
   assert.ok(saveButton, '应当有保存按钮')
-  const beforeSaves = fetchCalls.filter((call) => call.url.endsWith('/config') && call.options?.method === 'POST').length
+  const posts = () => fetchCalls.filter((call) => call.url.endsWith('/config') && call.options?.method === 'POST')
   saveButton.handlers.click()
   await flush()
-  const saves = fetchCalls.filter((call) => call.url.endsWith('/config') && call.options?.method === 'POST')
-  assert.equal(saves.length, beforeSaves + 1, '点保存应当发一次 POST')
-  const body = JSON.parse(saves.at(-1).options.body)
-  assert.equal(body.config.smtp.host, 'smtp.qq.com')
-  assert.equal(body.config.smtp.pass, '', '界面上口令字段为空，POST 里也必须是空（= 不修改）')
+  assert.equal(posts().length, 0, '没有改动时不应发 POST')
+  assert.match(msgBoxText(panel), /没有检测到改动/)
+
+  // 改一个开关再保存：POST 里应当只有这一处改动
+  const toggle = created.find((node) => node.tagName === 'INPUT' && node.type === 'checkbox'
+    && node.parentNode?.children?.[1]?.textContent === '任务完成 / 出错时通知')
+  assert.ok(toggle, '应当能找到「任务完成 / 出错时通知」这个开关')
+  toggle.handlers.change({ target: { checked: false } })
+  saveButton.handlers.click()
+  await flush()
+  const saves = posts()
+  assert.equal(saves.length, 1, '改了内容就应当发一次 POST')
+  const body = JSON.parse(saves[0].options.body)
+  assert.deepEqual(body, { config: { events: { turnEnd: false } } }, '只回传差异，不把整份配置写回去')
   assert.equal(JSON.stringify(body).includes('authcode'), false)
   void rendered
 })
+
+/** 取面板里消息区的文字（用于断言提示语）。 */
+function msgBoxText(panel) {
+  const found = []
+  const walk = (node) => {
+    if (node.className?.includes('msg')) found.push(node.textContent)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(panel)
+  return found.join(' | ')
+}
 
 console.log(failures === 0 ? '\n全部通过' : `\n失败 ${failures} 项`)
 globalThis.setInterval = realSetInterval

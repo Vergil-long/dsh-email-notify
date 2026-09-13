@@ -545,6 +545,55 @@ await test('草稿不完整时给出"缺什么"的提示，而不是抛异常', 
   assert.match(result.json.error, /配置不完整/)
 })
 
+await test('老配置（v0.1 时代手写的那份）能平滑升级：默认值补齐、口令与手写说明键都保住', async () => {
+  /*
+   * 这份 fixture 刻意照用户真实 config.json 的样子写：
+   * 有手写的 _说明 键、没有 events、没有 notifyWhenFocused，口令是明文躺在文件里的。
+   * 要验证的是：新版读它时补默认值、面板保存时既不抹掉口令、也不把默认值固化进文件。
+   */
+  const legacy = {
+    _说明: '用户手写的说明，不能被覆盖',
+    enabled: true,
+    smtp: {
+      host: '127.0.0.1',
+      port: smtp.port,
+      secure: false,
+      rejectUnauthorized: true,
+      user: 'me@qq.com',
+      pass: 'authcode',
+      from: 'me@qq.com',
+      fromName: 'DeepSeek Harness',
+    },
+    to: ['me@qq.com'],
+  }
+  writeFileSync(configPath, JSON.stringify(legacy, null, 2), 'utf8')
+  await settle()
+
+  const read = await callRoute('/dsh-email-notify/config')
+  assert.equal(read.json.config.events.question, true, '缺失的 events.question 应补上默认值 true')
+  assert.equal(read.json.config.notifyWhenFocused, false, 'notifyWhenFocused 默认应为 false（避免与外壳重复）')
+  assert.equal(read.json.config.smtp.passSet, true)
+  assert.equal(read.json.config.smtp.pass, '', '口令不回显')
+
+  // 面板保存：只回传改动的字段（口令字段留空 = 不修改）
+  const saved = await callRoute('/dsh-email-notify/config', {
+    method: 'POST',
+    body: { config: { events: { question: false } } },
+  })
+  assert.equal(saved.json.ok, true)
+
+  const raw = JSON.parse(readFileSync(configPath, 'utf8'))
+  assert.equal(raw._说明, '用户手写的说明，不能被覆盖', '手写的说明键必须原样保留')
+  assert.equal(raw.smtp.pass, 'authcode', '口令留空 = 不修改，不能被抹掉')
+  assert.equal(raw.events.question, false, '改动要落盘')
+  assert.equal(raw.events.turnEnd, undefined, '没碰过的默认值不该被固化进用户文件')
+  assert.equal(raw.notifyWhenFocused, undefined, '同理，默认值不落盘')
+  assert.equal(raw.to.length, 1)
+
+  writeConfig()
+  await settle()
+})
+
 await test('释放函数会摘掉全部路由', async () => {
   for (const dispose of disposers) if (typeof dispose === 'function') dispose()
   assert.equal(routes.size, 0)

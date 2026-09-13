@@ -249,12 +249,48 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 只挑出**真的改了**的字段。
+     *
+     * 为什么不在保存时把整份配置发回去：那样会把当前所有默认值也固化进用户的
+     * config.json，以后再改默认值（升级插件）就不生效了。只回传差异，没碰过的项
+     * 就继续跟着默认值走。
+     *
+     * 口令特例：读回来永远是空（不回显），所以"空"表示不修改、只有填了才回传。
+     * @param {object} original - 加载/上次保存后的配置。
+     * @param {object} draft - 界面上正在编辑的配置。
+     * @returns {object} 只含改动的补丁对象，可能为空对象。
+     */
+    function diffConfig(original, draft) {
+      var patch = {};
+      var base = original || {};
+      Object.keys(draft || {}).forEach(function (key) {
+        if (key === 'passSet' || key === 'passFromEnv') return; // 只读标记，不属于配置
+        var before = base[key];
+        var after = draft[key];
+        if (after && typeof after === 'object' && !Array.isArray(after)) {
+          var child = {};
+          var childPatch = diffConfig(before && typeof before === 'object' ? before : {}, after);
+          Object.keys(childPatch).forEach(function (inner) { child[inner] = childPatch[inner]; });
+          if (Object.keys(child).length > 0) patch[key] = child;
+          return;
+        }
+        if (key === 'pass') {
+          if (typeof after === 'string' && after !== '') patch[key] = after;
+          return;
+        }
+        if (JSON.stringify(before) !== JSON.stringify(after)) patch[key] = after;
+      });
+      return patch;
+    }
+
+    /**
      * 设置面板本体：纯 DOM 构建。
      * 不把整份配置塞进 React state——字段多、还要保留"草稿未保存"的改动，
      * 直接读草稿对象 + 手动重绘表单更简单，也和 dsh-custom-font 的做法一致。
      */
     function buildPanel(root) {
-      var draft = null;   // 正在编辑的配置（未保存的改动都在这里）
+      var draft = null;    // 正在编辑的配置（未保存的改动都在这里）
+      var original = null; // 加载/上次保存后的配置，用来算差异
       var msgBox = el("div", { class: "msg" });
       var statusBox = el("div", { class: "status" });
       var body = el("div");
@@ -380,7 +416,8 @@ window.__ModuleLoader__.load({
             setMessage("err", "读取配置失败：" + JSON.stringify(result.data));
             return;
           }
-          draft = result.data.config;
+          original = result.data.config;
+          draft = JSON.parse(JSON.stringify(result.data.config));
           renderForm();
           renderStatus();
         }).catch(function (error) {
@@ -390,22 +427,28 @@ window.__ModuleLoader__.load({
 
       function save() {
         if (!draft) return;
+        var patch = diffConfig(original, draft);
+        if (Object.keys(patch).length === 0) {
+          setMessage("warn", "没有检测到改动。");
+          return;
+        }
         saveButton.disabled = true;
         setMessage(null, "");
         request("/config", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ config: draft }),
+          body: JSON.stringify({ config: patch }),
         }).then(function (result) {
           if (!result.ok) {
             setMessage("err", "保存失败：" + (result.data.error || JSON.stringify(result.data)));
             return;
           }
-          draft = result.data.config;
+          original = result.data.config;
+          draft = JSON.parse(JSON.stringify(result.data.config));
           renderForm();
           renderStatus();
           setMessage(result.data.ready ? "ok" : "warn", result.data.ready
-            ? "已保存，配置就绪。"
+            ? "已保存（只写入了改动项），配置就绪。"
             : "已保存，但还缺：" + (result.data.missing || []).join(", "));
         }).catch(function (error) {
           setMessage("err", "保存失败：" + error.message);
