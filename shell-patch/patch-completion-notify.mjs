@@ -42,6 +42,7 @@ import vm from 'node:vm'
 
 import { ORIGINAL_FUNCTION, PATCHED_FUNCTION } from './bridge-snippets.mjs'
 import { desktopProcessState } from './dsh-process.mjs'
+import { findAsar } from './locate-asar.mjs'
 
 const MARKER = 'dsh-email-notify stable-key fix'
 
@@ -165,44 +166,22 @@ function argValue(name) {
   return value && !value.startsWith('--') ? value : null
 }
 
-/** 从注册表的卸载项推断安装目录（不写死任何人的路径）。 */
-function detectAsarFromRegistry() {
-  const roots = [
-    'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-    'HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-  ]
-  for (const root of roots) {
-    let output = ''
-    try {
-      output = execFileSync('reg', ['query', root, '/s', '/f', 'DeepSeekHarness'], { encoding: 'utf8', windowsHide: true })
-    } catch {
-      continue
-    }
-    const match = /(?:UninstallString|DisplayIcon)\s+REG_SZ\s+"?([^"\r\n]+)"?/.exec(output)
-    if (!match) continue
-    const candidate = join(dirname(match[1].trim()), 'resources', 'app.asar')
-    if (existsSync(candidate)) return candidate
-  }
-  return null
-}
-
-function findAsar() {
-  const explicit = argValue('asar') || process.env.DSH_DESKTOP_ASAR
+/** 定位 app.asar：显式 --asar 优先，其余交给共用的自动定位（环境变量→常见目录→注册表）。 */
+function resolveAsar() {
+  const explicit = argValue('asar')
   if (explicit) {
     const resolved = explicit.trim()
     if (!existsSync(resolved)) fail(`指定的 app.asar 不存在：${resolved}`)
     return resolved
   }
-  const candidates = [
-    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'DeepSeekHarness', 'resources', 'app.asar'),
-    process.env.ProgramFiles && join(process.env.ProgramFiles, 'DeepSeekHarness', 'resources', 'app.asar'),
-    process.env['ProgramFiles(x86)'] && join(process.env['ProgramFiles(x86)'], 'DeepSeekHarness', 'resources', 'app.asar'),
-  ].filter(Boolean)
-  for (const candidate of candidates) if (existsSync(candidate)) return candidate
-  const fromRegistry = detectAsarFromRegistry()
-  if (fromRegistry) return fromRegistry
-  fail('找不到 app.asar。请用 --asar <路径> 指定，例如：\n  --asar "D:\\Download\\DeepSeekHarness\\resources\\app.asar"')
+  const found = findAsar()
+  if (found) return found
+  fail([
+    '找不到 app.asar。请用 --asar <路径> 指定，例如：',
+    '  --asar "D:\\Download\\DeepSeekHarness\\resources\\app.asar"',
+    '（自动定位会查 DSH_DESKTOP_ASAR 环境变量、常见安装目录，以及注册表卸载项；',
+    '  若本进程不允许查询注册表，就只能手动指定。）',
+  ].join('\n'))
 }
 
 /**
@@ -253,7 +232,7 @@ const dryRun = process.argv.includes('--dry')
 const revert = process.argv.includes('--revert')
 const keepWork = process.argv.includes('--keep-work')
 
-const asarPath = findAsar()
+const asarPath = resolveAsar()
 say(`app.asar：${asarPath}`)
 
 const original = readFileSync(asarPath)
