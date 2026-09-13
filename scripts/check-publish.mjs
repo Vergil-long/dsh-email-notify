@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** 明确不发布的文件（与 .gitignore 对齐）。 */
-const PRIVATE_FILES = new Set(['项目说明.md', 'config.json'])
+const PRIVATE_FILES = new Set(['项目说明.md', '继续工作-交接.md', 'config.json'])
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'shell-patch/.work', '.work'])
 
 /** 只扫文本类文件。 */
