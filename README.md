@@ -95,18 +95,25 @@ QQ 邮箱先做这一步：网页版邮箱 → 设置 → 账户 → 开启「IM
 ## 自检与排查
 
 ```bash
-npm test                            # 全部自检用例（清单 / 脚本 / 协议层 / 触发判定 / 浏览器半侧 / 外壳补丁）
+npm test                            # 全部自检用例（7 套 / 75 项）
 node scripts/verify-live.mjs        # ★重启后第一件事：现场核验（插件加载没有、外壳补丁打没有）
 node test/manifest.test.mjs         # 清单自检：能不能被 DSH 装上并加载（最易静默失败的一层）
 node test/scripts.test.mjs          # 脚本纯函数（如从注册表输出推出 app.asar 路径）
 node test/smtp.test.mjs             # 本地假 SMTP 服务器跑完整对话
 node test/plugin.test.mjs           # 触发判定：看界面不发、离开才发、去重、节流、提问、设置接口
+node test/host-integration.test.mjs # ★真运行时：真 cordis + 真 webServer 上挂载并走真 HTTP 断言
 node test/client.test.mjs           # 浏览器半侧：在场上报、提示退化、设置面板
 node shell-patch/test-completion-bridge.mjs  # 外壳注入脚本行为（原版 vs 修补版对照）
 node test/live-probe.mjs            # 真连 smtp.qq.com:465，只握手不发信（验证网络/端口）
 node scripts/send-test.mjs --check  # 只看配置填全没有
 node scripts/send-test.mjs --trace  # 真发一封并打印完整 SMTP 对话（凭据已隐藏）
 ```
+
+`test/host-integration.test.mjs` 会自己找本机的 DSH 运行时（环境变量 → 桌面程序旁 → 常见安装目录 → 注册表），
+找不到就跳过（所以没装 DSH 的环境跑 `npm test` 也是绿的）；想手动指定就设
+`DSH_RUNTIME_MODULES=<...>/dsh-runtime/node_modules`。它验证的是"真挂得上、真能响应"：
+挂载不报错、五个路由的真 HTTP 状态码与 JSON、口令不回显与留空不覆盖、
+presence 改变在场判定、405/404，以及 **dispose 后路由真的消失、端口真的关闭**。
 
 `scripts/verify-live.mjs` 会逐项报告：宿主半侧是不是新版、配置是否就绪、当前是否判定为"你在看界面"、
 **浏览器半侧有没有被装配进页面**（读页面里的 `window.__DSH_BOOT__` 清单）、bundle 能不能取到、

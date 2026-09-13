@@ -38,6 +38,12 @@
 - 新增 `test/manifest.test.mjs` 清单自检：按 `dsh-client-modules` 的实际校验规则核对
   `dsh.bundle.patch` / `dsh.client` / `exports["./client"]` / 浏览器半侧的 `__ModuleLoader__` 包装
   —— 这一层出错是"静默失败"（插件装上了但设置页里没有那一节），必须由用例守住。
+- 新增 `test/host-integration.test.mjs` 真运行时自检：用 DSH 自带的 cordis 起真 Context、
+  装真的 `dsh-host-webserver`，把宿主半侧挂上去，再走**真 HTTP** 断言（挂载不报错、五个路由的状态码与 JSON、
+  口令不回显与留空不覆盖、presence 改变在场判定、405/404，以及 dispose 后路由消失、端口关闭）。
+  本机没装 DSH 时自动跳过。
+- 新增 `scripts/verify-live.mjs`：重启后一条命令核验插件是否真的加载、浏览器半侧是否装配进页面
+  （读 `window.__DSH_BOOT__`）、外壳补丁是否已打，每项不过都给出修复提示。
 
 **修复**
 
