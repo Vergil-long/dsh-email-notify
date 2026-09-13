@@ -7,7 +7,7 @@
 ## 1. 发布前跑两条命令
 
 ```bash
-npm test                          # 7 套自检 + 发布安全检查，全绿再往下走
+npm test                          # 8 套自检 + 发布安全检查，全绿再往下走
 node scripts/check-publish.mjs    # 单独再扫一遍隐私（会跳过 项目说明.md 与 config.json）
 ```
 

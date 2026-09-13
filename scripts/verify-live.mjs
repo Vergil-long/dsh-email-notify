@@ -18,7 +18,7 @@
  * 只读：不启动服务、不改任何文件。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,6 +57,14 @@ try {
   const config = await getJson(`/${PACKAGE_NAME}/config`)
   if (config.ok) {
     record('宿主半侧是新版（/config 存在）', true, `configPath=${config.value.configPath}`)
+    // 0.3.0 起 /config 会连默认模板与占位符清单一并下发（设置界面靠它渲染模板编辑器）。
+    // 装了新代码但没重启时，这里会是旧版 —— 这正是"设置里看不到新东西"的常见原因。
+    const templates = config.value.templates
+    record('宿主半侧是新版（会下发邮件模板）', Boolean(templates && templates.defaultBody),
+      templates && templates.defaultBody
+        ? `默认正文 ${JSON.stringify(templates.defaultBody.split('\n')[0])}… 占位符 ${(templates.placeholders || []).length} 个`
+        : '当前运行中的宿主半侧还是旧版：邮件内容自定义、侧栏会话名都还没生效',
+      '同步插件（双击 更新并修复.cmd 或 node scripts/install.mjs）后重启 DSH')
     status = await getJson(`/${PACKAGE_NAME}/status`)
   } else {
     record('宿主半侧是新版（/config 存在）', false, config.reason,
@@ -73,6 +81,16 @@ if (status?.ok) {
     value.ready ? `发往 ${(value.to || []).join(', ')}` : `还缺：${(value.missing || []).join(', ')}`,
     '打开 设置 → 邮件通知 补全')
   record('在场判定可用', true, `watching=${value.watching}，客户端 ${(value.clients || []).length} 个`)
+  // 发信总闸：默认是"离开模式关着 = 一封都不发"，不报一句的话用户会以为插件坏了。
+  const hasGate = value.awayMode !== undefined || value.autoMode !== undefined
+  record('发信总闸（离开模式）', true, !hasGate
+    ? '当前运行中的宿主半侧还没有这个功能（重启 DSH 后生效）'
+    : (value.autoMode
+      ? '自动模式：不在看界面时才发'
+      : (value.awayMode
+        ? '【开】所有勾选的通知都发邮件'
+        : '【关】目前不会发任何邮件 —— 点会话页头右上角的「离开模式」按钮开始发')),
+  '会话页头右上角有「离开模式」按钮；想在设置里改就进「设置 → 邮件通知 → 高级设置」')
   const last = value.lastSend
   record('发信记录', Boolean(last?.ok), last ? `${last.ok ? '成功' : '失败'} · ${last.subject ?? ''} ${last.error ?? ''}` : '还没有发过')
 }
@@ -109,17 +127,56 @@ try {
 
 const dshHome = (process.env.DSH_HOME || '').trim() || join(homedir(), '.dsh')
 const installedDir = join(homedir(), PACKAGE_NAME)
-const filesToCompare = ['lib/index.js', 'lib/config.js', 'lib/smtp.js', 'client/client.js', 'package.json', 'cordis.patch.yml']
+
+/**
+ * 要和 install.mjs 的 `ITEMS` 保持一致：**装了哪些就比哪些**。
+ *
+ * 早先这里只挑 6 个文件比（lib×3、client、package.json、cordis.patch.yml），
+ * 结果 `scripts/` 变了也照样报"全部一致" —— 那是假绿。现在整目录递归比对，
+ * 顺带把"源码里已经没有、装的那份却还在"的多余文件也揪出来。
+ */
+const INSTALLED_ITEMS = ['lib', 'client', 'scripts', 'cordis.patch.yml', 'package.json', 'README.md', 'LICENSE']
+
+/** 递归列出某个条目下的全部文件（相对基准目录的路径，用 / 分隔）。 */
+function collectFiles(baseDir, relative) {
+  const full = join(baseDir, relative)
+  let stat
+  try {
+    stat = statSync(full)
+  } catch {
+    return []
+  }
+  if (!stat.isDirectory()) return [relative]
+  const out = []
+  for (const entry of readdirSync(full, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === '.git') continue
+    const next = `${relative}/${entry.name}`
+    if (entry.isDirectory()) out.push(...collectFiles(baseDir, next))
+    else out.push(next)
+  }
+  return out
+}
+
 if (existsSync(installedDir)) {
   const hash = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
-  const mismatched = filesToCompare.filter((file) => {
-    const source = join(root, file)
-    const installed = join(installedDir, file)
-    return !existsSync(installed) || hash(source) !== hash(installed)
-  })
-  record('已安装副本与源码一致', mismatched.length === 0,
-    mismatched.length === 0 ? `${filesToCompare.length} 个文件全部一致` : `不一致：${mismatched.join(', ')}`,
-    '双击 更新并修复.cmd 同步（或 node scripts/install.mjs），再重启 DSH')
+  const sourceFiles = INSTALLED_ITEMS.filter((item) => existsSync(join(root, item))).flatMap((item) => collectFiles(root, item))
+  const installedFiles = INSTALLED_ITEMS.filter((item) => existsSync(join(installedDir, item))).flatMap((item) => collectFiles(installedDir, item))
+  const installedSet = new Set(installedFiles)
+
+  const missing = sourceFiles.filter((file) => !installedSet.has(file))
+  const diverged = sourceFiles.filter((file) => installedSet.has(file) && hash(join(root, file)) !== hash(join(installedDir, file)))
+  const extra = installedFiles.filter((file) => !sourceFiles.includes(file))
+  const problems = [
+    ...diverged.map((file) => `${file}（内容不同）`),
+    ...missing.map((file) => `${file}（缺失）`),
+    ...extra.map((file) => `${file}（源码里已没有）`),
+  ]
+
+  record('已安装副本与源码一致', problems.length === 0,
+    problems.length === 0
+      ? `${sourceFiles.length} 个文件全部一致`
+      : `不一致：${problems.slice(0, 6).join('、')}${problems.length > 6 ? ` 等 ${problems.length} 项` : ''}`,
+    '双击 更新并修复.cmd 同步（或 node scripts/install.mjs）')
 } else {
   record('已安装副本存在', false, `找不到 ${installedDir}`, '先安装：node scripts/install.mjs')
 }
@@ -129,7 +186,8 @@ if (existsSync(installedDir)) {
 try {
   const asarPath = argOf('asar', null) ?? findAsar()
   if (!asarPath || !existsSync(asarPath)) {
-    record('桌面外壳补丁状态', false, '找不到 app.asar', '用 --asar <路径> 指定，或跑 shell-patch 脚本时它会自动找')
+    record('桌面外壳补丁状态', false, '找不到 app.asar',
+      '用 --asar <路径> 指定，或设环境变量 DSH_DESKTOP_ASAR；双击 shell-patch\\修复桌面误报通知.cmd 时它会自动找')
   } else {
     const buffer = readFileSync(asarPath)
     const headerLength = buffer.readUInt32LE(4)

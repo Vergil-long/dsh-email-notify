@@ -1,11 +1,16 @@
 {
   "name": "dsh-email-notify",
-  "version": "0.2.0",
+  "version": "0.5.4",
   "description": "DeepSeek Harness 邮件通知插件：不在 harness 窗口前时，用邮件告诉你任务已完成、工具正等你授权、或助手在等你回答。设置全部集成在 harness 的设置界面里。",
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",
   "author": "Vergil-long",
+  "contributors": [
+    {
+      "name": "DeepSeek Harness (deepseek-v4-flash)"
+    }
+  ],
   "homepage": "https://github.com/Vergil-long/dsh-email-notify#readme",
   "repository": {
     "type": "git",
@@ -59,9 +64,10 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/manifest.test.mjs && node test/scripts.test.mjs && node test/smtp.test.mjs && node test/plugin.test.mjs && node test/host-integration.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs && node scripts/check-publish.mjs",
+    "test": "node test/manifest.test.mjs && node test/scripts.test.mjs && node test/template.test.mjs && node test/smtp.test.mjs && node test/plugin.test.mjs && node test/host-integration.test.mjs && node test/client.test.mjs && node shell-patch/test-completion-bridge.mjs && node scripts/check-publish.mjs",
     "test:manifest": "node test/manifest.test.mjs",
     "test:scripts": "node test/scripts.test.mjs",
+    "test:template": "node test/template.test.mjs",
     "test:smtp": "node test/smtp.test.mjs",
     "test:plugin": "node test/plugin.test.mjs",
     "test:host": "node test/host-integration.test.mjs",

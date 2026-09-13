@@ -33,7 +33,6 @@
  * 注：下面两段函数文本用的是普通模板字符串，因此文中的反引号写成 \` 、正则里的
  * 双反斜杠写成 \\\\ —— 它们必须与 asar 里 main.js 的字节完全一致，否则脚本会拒绝动手。
  */
-import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -179,8 +178,8 @@ function resolveAsar() {
   fail([
     '找不到 app.asar。请用 --asar <路径> 指定，例如：',
     '  --asar "D:\\Download\\DeepSeekHarness\\resources\\app.asar"',
-    '（自动定位会查 DSH_DESKTOP_ASAR 环境变量、常见安装目录，以及注册表卸载项；',
-    '  若本进程不允许查询注册表，就只能手动指定。）',
+    '（自动定位会依次查 DSH_DESKTOP_ASAR 环境变量、常见安装目录、当前进程的执行体位置，',
+    '  以及注册表卸载项；四种都试过仍找不到时，就只能手动指定。）',
   ].join('\n'))
 }
 

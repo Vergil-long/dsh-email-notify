@@ -2,14 +2,19 @@
  * 查询 DSH 桌面程序是否在运行 —— 供外壳补丁与一键更新脚本共用。
  *
  * 这里最要紧的一点：**"查不到"不等于"没在运行"**。
- * Node 的 spawnSync 在遇到 EPERM / 拒绝访问时不会抛异常，而是把错误放进返回值的
- * `error` 字段、stdout 留空。如果据此判定"没在运行"，就会去写一个被占用的
- * app.asar —— 那是 fail-open，正是必须避免的方向。
+ * 查询失败时绝不能得出"没在运行"的结论，否则就会去写一个被占用的 app.asar
+ * —— 那是 fail-open，正是必须避免的方向。
  *
  * 所以这里返回三态：知道在跑 / 知道没在跑 / 查不出来（由调用方决定怎么办，
  * 但调用方应当把"查不出来"当成不安全来处理）。
+ *
+ * 两个实现细节（都踩过）：
+ *   1. 子进程输出走 `captureSync`（落临时文件）而不是管道 —— DSH 沙箱禁止管道，
+ *      用管道时两个手段都会以 EPERM 失败，于是永远"查不出来"。
+ *   2. `tasklist` 在 DSH 沙箱里会被**直接拒绝**（`Access denied`），拿不到输出；
+ *      所以 `Get-Process` 这条兜底不是可有可无的，它才是沙箱内真正管用的那个。
  */
-import { spawnSync } from 'node:child_process'
+import { captureSync } from './exec-capture.mjs'
 
 /**
  * @returns {{known: boolean, running: boolean, detail: string}}
@@ -19,7 +24,7 @@ export function desktopProcessState() {
   const attempts = [
     {
       name: 'tasklist',
-      run: () => spawnSync('tasklist', ['/FI', 'IMAGENAME eq DeepSeekHarness.exe', '/NH'], { encoding: 'utf8', windowsHide: true }),
+      run: () => captureSync('tasklist', ['/FI', 'IMAGENAME eq DeepSeekHarness.exe', '/NH']),
       match: (text) => {
         if (/DeepSeekHarness\.exe/i.test(text)) return true
         // 本地化的"没有匹配任务"提示；英文/中文两种都认。
@@ -29,8 +34,8 @@ export function desktopProcessState() {
     },
     {
       name: 'powershell',
-      run: () => spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-        '(@(Get-Process -Name DeepSeekHarness -ErrorAction SilentlyContinue)).Count'], { encoding: 'utf8', windowsHide: true }),
+      run: () => captureSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        '(@(Get-Process -Name DeepSeekHarness -ErrorAction SilentlyContinue)).Count']),
       match: (text) => {
         const trimmed = text.trim()
         if (!/^\d+$/.test(trimmed)) return null
@@ -41,18 +46,12 @@ export function desktopProcessState() {
 
   const problems = []
   for (const attempt of attempts) {
-    let result
-    try {
-      result = attempt.run()
-    } catch (error) {
-      problems.push(`${attempt.name}: ${error.message}`)
+    const result = attempt.run()
+    if (!result.ok) {
+      problems.push(`${attempt.name}: ${describeFailure(result)}`)
       continue
     }
-    if (result.error || result.status !== 0) {
-      problems.push(`${attempt.name}: ${result.error?.code ?? `exit ${result.status}`}`)
-      continue
-    }
-    const verdict = attempt.match(String(result.stdout ?? ''))
+    const verdict = attempt.match(result.text)
     if (verdict === null) {
       problems.push(`${attempt.name}: 输出无法判断`)
       continue
@@ -60,6 +59,16 @@ export function desktopProcessState() {
     return { known: true, running: verdict, detail: attempt.name }
   }
   return { known: false, running: false, detail: problems.join('; ') || '没有可用的查询手段' }
+}
+
+/**
+ * 把一次失败的查询说清楚 —— 带上 stderr 的第一行。
+ * 沙箱拒绝 `tasklist` 时那一行就是 `ERROR: Access denied`，比光看 `exit 1` 有用得多。
+ */
+function describeFailure(result) {
+  const reason = result.error ?? `exit ${result.status}`
+  const firstLine = String(result.stderr ?? '').trim().split(/\r?\n/)[0] ?? ''
+  return firstLine ? `${reason}（${firstLine}）` : reason
 }
 
 /** 给人看的一句话结论。 */

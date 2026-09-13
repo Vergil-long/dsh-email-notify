@@ -35,6 +35,9 @@ function writeConfig(patch = {}) {
     to: ['me@qq.com'],
     minIntervalSeconds: 0,
     maxPerMinute: 0,
+    // 大多数用例关心的是"看界面就不发、离开就发"这套判定，所以基准配置用自动模式
+    // （= 0.4 之前的行为）。手动模式（默认值）另外有专门的用例覆盖。
+    autoMode: true,
   }
   const merged = { ...base, ...patch }
   writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8')
@@ -181,7 +184,7 @@ await test('路由已注册（presence / inbox / status / config / test）', asy
   assert.equal(typeof disposers[0], 'function', '应返回释放函数')
 })
 
-await test('没人在看界面时：回合结束 → 发一封中文邮件，含标题/工作区/提问/回复', async () => {
+await test('没人在看界面时：回合结束 → 发一封精简邮件（工作区 / 会话 / 状态）', async () => {
   const before = baseline()
   const session = makeSession({ id: 'session-away-1' })
   runTurn(session, { prompt: '把通知改成邮件', reply: '已完成改动并通过自检。' })
@@ -193,11 +196,63 @@ await test('没人在看界面时：回合结束 → 发一封中文邮件，含
   assert.match(subject, /✅ 任务已完成/)
   assert.match(subject, /给 harness 加邮件通知/)
   assert.match(body, /工作区：F:\\Space For AI work\\harness/)
-  assert.match(body, /结果：已完成/)
-  assert.match(body, /你的提问 ──\n把通知改成邮件/)
-  assert.match(body, /最后回复 ──\n已完成改动并通过自检。/)
+  // 会话名必须是**侧栏那个名字**，不是 session-… 这串 id。
+  assert.match(body, /会话：给 harness 加邮件通知/)
+  assert.match(body, /状态：已完成/)
+  assert.match(body, /这封邮件由 dsh-email-notify 发送/)
+  assert.doesNotMatch(body, /session-away-1/, '正文里不该出现内部会话 id')
+  // 默认是精简版：整段助手回复（往往几百字）不该塞进来。
+  assert.doesNotMatch(body, /已完成改动并通过自检/)
+  assert.ok(body.split('\n').length <= 8, `正文应当很短，实际 ${body.split('\n').length} 行：\n${body}`)
+})
+
+await test('自定义模板：写在模板里的占位符按用户的意思渲染', async () => {
+  writeConfig({
+    subjectTemplate: '任务{状态} · {会话}',
+    bodyTemplate: [
+      '工作区：{工作区}',
+      '会话：{会话}',
+      '回合：第 {回合} 轮 · 用时 {用时}',
+      '状态：{状态}',
+      '── 你的提问 ──',
+      '{提问}',
+      '── 最后回复 ──',
+      '{最后回复}',
+    ].join('\n'),
+  })
+  const before = baseline()
+  const session = makeSession({ id: 'session-template-1' })
+  runTurn(session, { prompt: '把通知改成邮件', reply: '已完成改动并通过自检。' })
+  await settle()
+  assert.equal(smtp.messages.length, before + 1)
+  const { headers, body } = parseMessage(smtp.messages.at(-1))
+  const { decodeHeader } = await import('./mock-smtp.mjs')
+  assert.match(decodeHeader(headers.get('subject')), /\[DSH\] 任务已完成 · 给 harness 加邮件通知/)
+  assert.match(body, /── 你的提问 ──\n把通知改成邮件/)
+  assert.match(body, /── 最后回复 ──\n已完成改动并通过自检。/)
   assert.match(body, /第 1 轮 · 用时 \d+ 秒/)
-  assert.match(body, /http:\/\/127\.0\.0\.1:3080/)
+  assert.doesNotMatch(body, /这封邮件由 dsh-email-notify 发送/, '用户自己写了模板，就不再自动加尾注')
+  writeConfig()
+})
+
+await test('模板里拼错的占位符渲染成空、并在保存时被告知', async () => {
+  const saved = await callRoute('/dsh-email-notify/config', {
+    method: 'POST',
+    body: { config: { bodyTemplate: '会话：{会话}\n工作区：{会化}' } },
+  })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.json.warnings.length, 1, '应当提示有认不出的占位符')
+  assert.match(saved.json.warnings[0], /\{会化\}/)
+
+  const before = baseline()
+  const session = makeSession({ id: 'session-typo-1' })
+  runTurn(session, { prompt: '随便', reply: '随便' })
+  await settle()
+  const { body } = parseMessage(smtp.messages.at(-1))
+  // 认不出来就渲染成空 —— 但绝不能原样把 {会化} 留在邮件里。
+  assert.doesNotMatch(body, /会化/)
+  assert.match(body, /工作区：\s*$/, '拼错那一行会变成空行')
+  writeConfig()
 })
 
 await test('正在看界面时：回合结束 → 不发邮件（默认也不弹提示，外壳会弹）', async () => {
@@ -263,7 +318,8 @@ await test('离开界面时收到授权请求 → 发邮件（含工具名与原
   assert.equal(smtp.messages.length, before + 1)
   const { decodeHeader } = await import('./mock-smtp.mjs')
   const { headers, body } = parseMessage(smtp.messages.at(-1))
-  assert.match(decodeHeader(headers.get('subject')), /🔐 需要你授权 · pwsh/)
+  assert.match(decodeHeader(headers.get('subject')), /🔐 任务需要你授权 · 改 app\.asar/)
+  assert.match(body, /状态：需要你授权/)
   assert.match(body, /工具：pwsh/)
   assert.match(body, /danger-full-access/)
   assert.match(body, /等你决定/)
@@ -315,7 +371,7 @@ await test('出错/中止的回合也会报，但主题标记不同', async () =
   const { headers, body } = parseMessage(smtp.messages.at(-1))
   assert.equal(smtp.messages.length, before + 1)
   assert.match(decodeHeader(headers.get('subject')), /⚠️ 任务出错/)
-  assert.match(body, /结果：出错/)
+  assert.match(body, /状态：出错/)
   assert.match(body, /502/)
 })
 
@@ -357,12 +413,22 @@ await test('status 接口给出可诊断信息（口令只报是否已填）', a
   assert.equal(JSON.stringify(result.json).includes('authcode'), false, '接口不能回显授权码')
 })
 
-await test('test 接口能真的发出一封测试邮件', async () => {
+await test('test 接口能真的发出一封测试邮件，并且按用户的模板渲染', async () => {
+  writeConfig({
+    subjectTemplate: '测试用主题 · {状态}',
+    bodyTemplate: '会话：{会话}\n状态：{状态}\n{详情}',
+  })
   const before = baseline()
   const result = await callRoute('/dsh-email-notify/test', { method: 'POST', body: {} })
   assert.equal(result.status, 200)
   assert.equal(result.json.ok, true)
   assert.equal(smtp.messages.length, before + 1)
+  const { decodeHeader } = await import('./mock-smtp.mjs')
+  const { headers, body } = parseMessage(smtp.messages.at(-1))
+  assert.match(decodeHeader(headers.get('subject')), /\[DSH\] 测试用主题 · 这是一封测试邮件/)
+  assert.match(body, /会话：示例会话名/)
+  assert.match(body, /能收到就说明 SMTP 配置可用/)
+  writeConfig()
   // 发过之后 status 要能看到结果，不能还显示 null
   const status = await callRoute('/dsh-email-notify/status')
   assert.equal(status.json.lastSend?.ok, true)
@@ -396,13 +462,12 @@ await test('离开界面时助手向你提问 → 发邮件（含问题与选项
   const { decodeHeader } = await import('./mock-smtp.mjs')
   const { headers, body } = parseMessage(smtp.messages.at(-1))
   const subject = decodeHeader(headers.get('subject'))
-  assert.match(subject, /❓ 需要你回答/)
-  assert.match(subject, /邮件通道/)
+  assert.match(subject, /❓ 任务等你回答/)
   assert.match(subject, /加邮件通知/)
+  assert.match(body, /状态：等你回答/)
   assert.match(body, /邮件通道：用哪个邮箱发出？/)
   assert.match(body, /· QQ 邮箱/)
   assert.match(body, /· 163 邮箱/)
-  assert.match(body, /问题数：1/)
   assert.match(body, /等你回答/)
 })
 
@@ -449,7 +514,7 @@ await test('插件在会话开始之后才挂载：标题从会话日志回读�
   const { decodeHeader } = await import('./mock-smtp.mjs')
   const { headers, body } = parseMessage(smtp.messages.at(-1))
   assert.match(decodeHeader(headers.get('subject')), /日志里已有的标题/)
-  assert.match(body, /任务：日志里已有的标题/)
+  assert.match(body, /会话：日志里已有的标题/)
 })
 
 await test('设置接口：读配置不回显授权码，写配置留空口令不会把授权码抹掉', async () => {
@@ -592,6 +657,81 @@ await test('老配置（v0.1 时代手写的那份）能平滑升级：默认值
 
   writeConfig()
   await settle()
+})
+
+/* ── 「离开模式」按钮：发信总闸由人决定 ───────────────────────── */
+
+await test('离开模式关着（默认）：就算你离开电脑，也一封都不发', async () => {
+  writeConfig({ awayMode: false, autoMode: false })
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: false, visible: true } })
+  const before = baseline()
+  const session = makeSession({ id: 'session-manual-off' })
+  runTurn(session, { turn: 1 })
+  await settle()
+  assert.equal(smtp.messages.length, before, '离开模式没开就一封都不发（哪怕你不在界面）')
+  writeConfig()
+})
+
+await test('离开模式开着：就算你正看着界面，也照发（这正是它存在的理由）', async () => {
+  writeConfig({ awayMode: true, autoMode: false })
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: true, visible: true } })
+  const status = await callRoute('/dsh-email-notify/status')
+  assert.equal(status.json.watching, true, '前提：此刻判定为"你正在看界面"')
+
+  const before = baseline()
+  const session = makeSession({ id: 'session-manual-on' })
+  runTurn(session, { turn: 1 })
+  await settle()
+  assert.equal(smtp.messages.length, before + 1,
+    '"人走了但窗口还开着"是自动判定最容易漏掉的情况，手动开着就必须发')
+  const { body } = parseMessage(smtp.messages.at(-1))
+  assert.match(body, /离开模式：开/, '邮件正文里要写清是离开模式在起作用')
+  writeConfig()
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: false, visible: true } })
+})
+
+await test('页头按钮写的就是配置：POST awayMode 后 /status 立刻反映，且不碰别的设置', async () => {
+  writeConfig({ awayMode: false, autoMode: false })
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: true, visible: true } })
+
+  let status = await callRoute('/dsh-email-notify/status')
+  assert.equal(status.json.awayMode, false)
+  assert.equal(status.json.willMail, false, '没开就明确表示"不会发"')
+
+  const saved = await callRoute('/dsh-email-notify/config', { method: 'POST', body: { config: { awayMode: true } } })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.json.config.awayMode, true)
+  assert.equal(saved.json.config.autoMode, false, '只该改 awayMode，别顺手改别的')
+
+  status = await callRoute('/dsh-email-notify/status')
+  assert.equal(status.json.awayMode, true)
+  assert.equal(status.json.willMail, true, '开着离开模式就该有信必发（不受在场判定影响）')
+
+  // 关回去
+  await callRoute('/dsh-email-notify/config', { method: 'POST', body: { config: { awayMode: false } } })
+  status = await callRoute('/dsh-email-notify/status')
+  assert.equal(status.json.willMail, false)
+  writeConfig()
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: false, visible: true } })
+})
+
+await test('自动模式：按钮状态被忽略，回到"不在看界面才发"', async () => {
+  writeConfig({ awayMode: false, autoMode: true })
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: false, visible: true } })
+  const before = baseline()
+  const off = makeSession({ id: 'session-auto-ignores-button' })
+  runTurn(off, { turn: 1 })
+  await settle()
+  assert.equal(smtp.messages.length, before + 1, '自动模式下，按钮关着也照样按在场判定发')
+
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: true, visible: true } })
+  const beforeWatching = baseline()
+  const on = makeSession({ id: 'session-auto-ignores-button-2' })
+  runTurn(on, { turn: 1 })
+  await settle()
+  assert.equal(smtp.messages.length, beforeWatching, '反过来也是：按钮开着，看界面时仍然不发')
+  writeConfig()
+  await callRoute('/dsh-email-notify/presence', { method: 'POST', body: { clientId: 'c1', focused: false, visible: true } })
 })
 
 await test('释放函数会摘掉全部路由', async () => {
